@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Canvas Calculator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            overflow: hidden;
+        }
+        
+        .container {
+            text-align: center;
+        }
+        
+        h1 {
+            color: #00d4ff;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+        }
+        
+        canvas {
+            background: rgba(20, 20, 20, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 24px;
+            border: 1px solid rgba(42, 42, 42, 0.5);
+            box-shadow: 
+                0 8px 32px rgba(0, 212, 255, 0.1),
+                0 0 0 1px rgba(42, 42, 42, 0.3);
+            cursor: pointer;
+            touch-action: none;
+        }
+        
+        .footer {
+            margin-top: 20px;
+            color: #6b6b6b;
+            font-size: 0.875rem;
+        }
+        
+        @media (max-width: 400px) {
+            canvas {
+                width: 100% !important;
+                height: auto !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI Canvas Calculator</h1>
+        <canvas id="calculatorCanvas" width="400" height="600"></canvas>
+        <div class="footer">Built with ❤️ Canvas API</div>
+    </div>
+    <script>
+        // ===== Canvas Calculator =====
+        
+        class CanvasCalculator {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                
+                // State
+                this.currentOperand = '0';
+                this.previousOperand = '';
+                this.operation = null;
+                this.resetScreen = false;
+                this.maxDigits = 12;
+                
+                // Layout
+                this.padding = 24;
+                this.buttonGap = 12;
+                this.buttonRows = 5;
+                this.buttonCols = 4;
+                
+                // Colors
+                this.colors = {
+                    bgPrimary: '#141414',
+                    bgSecondary: '#1e1e1e',
+                    bgTertiary: '#2d2d2d',
+                    textPrimary: '#ffffff',
+                    textSecondary: '#a0a0a0',
+                    textTertiary: '#6b6b6b',
+                    accent: '#00d4ff',
+                    accentSecondary: '#0099cc',
+                    operator: '#00d4ff',
+                    clear: '#ff3b30',
+                    delete: '#ff9500',
+                    border: '#2a2a2a',
+                    shadow: 'rgba(0, 212, 255, 0.1)',
+                    glow: 'rgba(0, 212, 255, 0.3)'
+                };
+                
+                // Buttons layout
+                this.buttons = [
+                    [{ text: 'AC', action: 'clear', type: 'special', colSpan: 2 },
+                     { text: 'DEL', action: 'delete', type: 'special' },
+                     { text: '%', action: 'operation', value: '%', type: 'operator' }],
+                    
+                    [{ text: '7', action: 'number', value: '7', type: 'number' },
+                     { text: '8', action: 'number', value: '8', type: 'number' },
+                     { text: '9', action: 'number', value: '9', type: 'number' },
+                     { text: '÷', action: 'operation', value: '/', type: 'operator' }],
+                    
+                    [{ text: '4', action: 'number', value: '4', type: 'number' },
+                     { text: '5', action: 'number', value: '5', type: 'number' },
+                     { text: '6', action: 'number', value: '6', type: 'number' },
+                     { text: '×', action: 'operation', value: '*', type: 'operator' }],
+                    
+                    [{ text: '1', action: 'number', value: '1', type: 'number' },
+                     { text: '2', action: 'number', value: '2', type: 'number' },
+                     { text: '3', action: 'number', value: '3', type: 'number' },
+                     { text: '-', action: 'operation', value: '-', type: 'operator' }],
+                    
+                    [{ text: '0', action: 'number', value: '0', type: 'number', colSpan: 2 },
+                     { text: '.', action: 'number', value: '.', type: 'number' },
+                     { text: '=', action: 'calculate', type: 'equals' },
+                     { text: '+', action: 'operation', value: '+', type: 'operator' }]
+                ];
+                
+                // Touch/mouse tracking
+                this.activeButton = null;
+                this.hoveredButton = null;
+                
+                // Animation
+                this.animationFrame = null;
+                this.lastTime = 0;
+                this.glowPhase = 0;
+                
+                this.init();
+            }
+            
+            init() {
+                this.resizeCanvas();
+                this.bindEvents();
+                this.calculateButtonPositions();
+                this.startAnimation();
+            }
+            
+            resizeCanvas() {
+                const containerWidth = Math.min(window.innerWidth - 40, 400);
+                const aspectRatio = 400 / 600;
+                const height = containerWidth / aspectRatio;
+                
+                this.canvas.width = containerWidth;
+                this.canvas.height = height;
+                this.calculateButtonPositions();
+            }
+            
+            calculateButtonPositions() {
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+                
+                // Display area height
+                this.displayHeight = 140;
+                this.displayY = this.padding;
+                this.displayWidth = w - this.padding * 2;
+                
+                // Buttons area
+                const buttonsY = this.displayY + this.displayHeight + this.padding;
+                const buttonsHeight = h - buttonsY - this.padding;
+                
+                // Calculate button size
+                this.buttonHeight = (buttonsHeight - (this.buttonGap * (this.buttonRows - 1))) / this.buttonRows;
+                this.buttonWidth = (w - this.padding * 2 - (this.buttonGap * (this.buttonCols - 1))) / this.buttonCols;
+                
+                // Button positions
+                this.buttonPositions = [];
+                let y = buttonsY;
+                
+                for (let row = 0; row < this.buttons.length; row++) {
+                    let x = this.padding;
+                    for (let col = 0; col < this.buttons[row].length; col++) {
+                        const btn = this.buttons[row][col];
+                        const colSpan = btn.colSpan || 1;
+                        
+                        this.buttonPositions.push({
+                            row, col,
+                            x, y,
+                            width: this.buttonWidth * colSpan + this.buttonGap * (colSpan - 1),
+                            height: this.buttonHeight,
+                            button: btn
+                        });
+                        
+                        x += this.buttonWidth * colSpan + this.buttonGap * (colSpan - 1) + this.buttonGap;
+                    }
+                    y += this.buttonHeight + this.buttonGap;
+                }
+            }
+            
+            bindEvents() {
+                // Mouse events
+                this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+                this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
+                this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+                this.canvas.addEventListener('mouseleave', (e) => this.handleMouseLeave(e));
+                
+                // Touch events
+                this.canvas.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: false });
+                this.canvas.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
+                this.canvas.addEventListener('touchend', (e) => this.handleTouchEnd(e));
+                
+                // Keyboard
+                document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+                
+                // Resize
+                window.addEventListener('resize', () => this.handleResize());
+            }
+            
+            handleResize() {
+                this.resizeCanvas();
+            }
+            
+            handleMouseMove(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                this.hoveredButton = this.getButtonAtPosition(x, y);
+            }
+            
+            handleMouseDown(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                const button = this.getButtonAtPosition(x, y);
+                if (button) {
+                    this.activeButton = button;
+                    this.pressButton(button);
+                }
+            }
+            
+            handleMouseUp(e) {
+                if (this.activeButton) {
+                    this.releaseButton(this.activeButton);
+                    this.activeButton = null;
+                }
+            }
+            
+            handleMouseLeave(e) {
+                this.hoveredButton = null;
+                if (this.activeButton) {
+                    this.releaseButton(this.activeButton);
+                    this.activeButton = null;
+                }
+            }
+            
+            handleTouchStart(e) {
+                e.preventDefault();
+                const rect = this.canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                
+                const button = this.getButtonAtPosition(x, y);
+                if (button) {
+                    this.activeButton = button;
+                    this.pressButton(button);
+                }
+            }
+            
+            handleTouchMove(e) {
+                e.preventDefault();
+                const rect = this.canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                
+                this.hoveredButton = this.getButtonAtPosition(x, y);
+            }
+            
+            handleTouchEnd(e) {
+                e.preventDefault();
+                if (this.activeButton) {
+                    this.releaseButton(this.activeButton);
+                    this.activeButton = null;
+                }
+            }
+            
+            handleKeyDown(e) {
+                if (e.key >= '0' && e.key <= '9') {
+                    this.appendNumber(e.key);
+                } else if (e.key === '.') {
+                    this.appendNumber('.');
+                } else if (['+', '-', '*', '/', '%'].includes(e.key)) {
+                    const opMap = { '*': '*', '/': '/', '+': '+', '-': '-', '%': '%' };
+                    this.chooseOperation(opMap[e.key]);
+                } else if (e.key === 'Enter' || e.key === '=') {
+                    this.calculate();
+                } else if (e.key === 'Escape') {
+                    this.clear();
+                } else if (e.key === 'Backspace') {
+                    this.delete();
+                }
+            }
+            
+            getButtonAtPosition(x, y) {
+                for (const pos of this.buttonPositions) {
+                    if (x >= pos.x && x <= pos.x + pos.width && 
+                        y >= pos.y && y <= pos.y + pos.height) {
+                        return pos;
+                    }
+                }
+                return null;
+            }
+            
+            pressButton(buttonPos) {
+                const action = buttonPos.button.action;
+                const value = buttonPos.button.value;
+                
+                switch(action) {
+                    case 'number':
+                        this.appendNumber(value);
+                        break;
+                    case 'operation':
+                        this.chooseOperation(value);
+                        break;
+                    case 'clear':
+                        this.clear();
+                        break;
+                    case 'delete':
+                        this.delete();
+                        break;
+                    case 'calculate':
+                        this.calculate();
+                        break;
+                }
+            }
+            
+            releaseButton(buttonPos) {
+                // Visual feedback is handled in draw
+            }
+            
+            // Calculator Logic
+            appendNumber(number) {
+                if (this.currentOperand === '0' && number !== '.') {
+                    this.currentOperand = number;
+                } else if (number === '.' && this.currentOperand.includes('.')) {
+                    return;
+                } else if (this.resetScreen) {
+                    this.currentOperand = number;
+                    this.resetScreen = false;
+                } else {
+                    if (this.currentOperand.length >= this.maxDigits && number !== '.') {
+                        return;
+                    }
+                    this.currentOperand += number;
+                }
+            }
+            
+            chooseOperation(operation) {
+                if (this.currentOperand === '') return;
+                
+                if (this.previousOperand !== '') {
+                    this.calculate();
+                }
+                
+                this.operation = operation;
+                this.previousOperand = this.currentOperand;
+                this.currentOperand = '';
+            }
+            
+            calculate() {
+                let result;
+                const prev = parseFloat(this.previousOperand);
+                const current = parseFloat(this.currentOperand);
+                
+                if (isNaN(prev) || isNaN(current)) return;
+                
+                switch (this.operation) {
+                    case '+': result = prev + current; break;
+                    case '-': result = prev - current; break;
+                    case '*': result = prev * current; break;
+                    case '/': result = prev / current; break;
+                    case '%': result = prev % current; break;
+                    default: return;
+                }
+                
+                this.currentOperand = this.formatNumber(result);
+                this.operation = null;
+                this.previousOperand = '';
+                this.resetScreen = true;
+            }
+            
+            formatNumber(number) {
+                if (Math.abs(number) >= 1e10 || Math.abs(number) <= 1e-6) {
+                    return number.toExponential(6);
+                }
+                
+                const stringNumber = number.toString();
+                if (stringNumber.includes('.')) {
+                    return stringNumber.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.$/, '');
+                }
+                return stringNumber;
+            }
+            
+            clear() {
+                this.currentOperand = '0';
+                this.previousOperand = '';
+                this.operation = null;
+            }
+            
+            delete() {
+                if (this.currentOperand.length === 1) {
+                    this.currentOperand = '0';
+                } else {
+                    this.currentOperand = this.currentOperand.slice(0, -1);
+                }
+                if (this.currentOperand === '' || this.currentOperand === '-') {
+                    this.currentOperand = '0';
+                }
+            }
+            
+            getOperationSymbol(op) {
+                const symbols = { '+': '+', '-': '-', '*': '×', '/': '÷', '%': '%' };
+                return symbols[op] || op;
+            }
+            
+            // Drawing
+            startAnimation() {
+                this.lastTime = performance.now();
+                this.animate();
+            }
+            
+            animate() {
+                const now = performance.now();
+                const deltaTime = (now - this.lastTime) / 1000;
+                this.lastTime = now;
+                
+                this.glowPhase += deltaTime * 2;
+                
+                this.draw();
+                this.animationFrame = requestAnimationFrame(() => this.animate());
+            }
+            
+            draw() {
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+                const ctx = this.ctx;
+                
+                // Clear
+                ctx.clearRect(0, 0, w, h);
+                
+                // Background with subtle gradient
+                const bgGradient = ctx.createLinearGradient(0, 0, w, h);
+                bgGradient.addColorStop(0, '#1a1a1a');
+                bgGradient.addColorStop(1, '#0a0a0a');
+                ctx.fillStyle = bgGradient;
+                ctx.fillRect(0, 0, w, h);
+                
+                // Glow effect
+                const glowSize = 400;
+                const glowGradient = ctx.createRadialGradient(
+                    w / 2, h / 2, 0,
+                    w / 2, h / 2, glowSize
+                );
+                const glowIntensity = 0.1 + Math.sin(this.glowPhase) * 0.05;
+                glowGradient.addColorStop(0, `rgba(0, 212, 255, ${glowIntensity})`);
+                glowGradient.addColorStop(1, 'rgba(0, 212, 255, 0)');
+                ctx.fillStyle = glowGradient;
+                ctx.fillRect(0, 0, w, h);
+                
+                // Draw calculator frame
+                this.drawRoundedRect(
+                    this.padding / 2, this.padding / 2,
+                    w - this.padding, h - this.padding,
+                    20, this.colors.bgSecondary
+                );
+                
+                // Draw display
+                this.drawDisplay();
+                
+                // Draw buttons
+                this.drawButtons();
+                
+                // Draw border glow
+                ctx.strokeStyle = `rgba(0, 212, 255, ${0.2 + Math.sin(this.glowPhase) * 0.1})`;
+                ctx.lineWidth = 2;
+                this.drawRoundedRectStroke(
+                    this.padding / 2, this.padding / 2,
+                    w - this.padding, h - this.padding,
+                    20
+                );
+            }
+            
+            drawDisplay() {
+                const ctx = this.ctx;
+                const x = this.padding;
+                const y = this.displayY;
+                const width = this.displayWidth;
+                const height = this.displayHeight;
+                
+                // Display background
+                this.drawRoundedRect(x, y, width, height, 16, this.colors.bgPrimary);
+                
+                // Top accent line
+                const accentGradient = ctx.createLinearGradient(x, y, x + width, y);
+                accentGradient.addColorStop(0, this.colors.accent);
+                accentGradient.addColorStop(1, this.colors.accentSecondary);
+                ctx.fillStyle = accentGradient;
+                ctx.fillRect(x, y, width, 3);
+                
+                // Previous operand
+                ctx.fillStyle = this.colors.textTertiary;
+                ctx.font = `14px 'JetBrains Mono', monospace`;
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'bottom';
+                
+                let prevText = this.previousOperand;
+                if (this.operation) {
+                    prevText += ` ${this.getOperationSymbol(this.operation)}`;
+                }
+                
+                if (prevText) {
+                    ctx.fillText(
+                        prevText,
+                        x + width - 16,
+                        y + 30
+                    );
+                }
+                
+                // Current operand
+                ctx.fillStyle = this.colors.textPrimary;
+                ctx.font = `bold 48px 'JetBrains Mono', monospace`;
+                
+                // Truncate if too long
+                const maxWidth = width - 24;
+                let currentText = this.currentOperand;
+                
+                // Measure text width
+                const textWidth = ctx.measureText(currentText).width;
+                if (textWidth > maxWidth) {
+                    // Scale down font
+                    const scale = maxWidth / textWidth;
+                    ctx.font = `bold ${Math.floor(48 * scale)}px 'JetBrains Mono', monospace`;
+                }
+                
+                ctx.fillText(
+                    currentText,
+                    x + width - 16,
+                    y + height - 16
+                );
+            }
+            
+            drawButtons() {
+                const ctx = this.ctx;
+                
+                for (const pos of this.buttonPositions) {
+                    const btn = pos.button;
+                    const isHovered = this.hoveredButton === pos;
+                    const isActive = this.activeButton === pos;
+                    
+                    // Determine colors based on button type
+                    let bgColor, textColor, hoverColor, activeColor;
+                    
+                    switch(btn.type) {
+                        case 'number':
+                            bgColor = this.colors.bgSecondary;
+                            textColor = this.colors.textPrimary;
+                            hoverColor = this.colors.bgTertiary;
+                            activeColor = '#2a2a2a';
+                            break;
+                        case 'operator':
+                            bgColor = this.colors.bgTertiary;
+                            textColor = this.colors.operator;
+                            hoverColor = '#3a3a3a';
+                            activeColor = '#454545';
+                            break;
+                        case 'special':
+                            if (btn.action === 'clear') {
+                                bgColor = '#ff3b30';
+                                textColor = '#ffffff';
+                                hoverColor = '#ff5e54';
+                                activeColor = '#cc2f24';
+                            } else {
+                                bgColor = '#ff9500';
+                                textColor = '#ffffff';
+                                hoverColor = '#ffb237';
+                                activeColor = '#cc7700';
+                            }
+                            break;
+                        case 'equals':
+                            bgColor = this.colors.accent;
+                            textColor = this.colors.bgPrimary;
+                            hoverColor = this.colors.accentSecondary;
+                            activeColor = '#00aacc';
+                            break;
+                    }
+                    
+                    // Adjust colors based on state
+                    let currentBg = bgColor;
+                    if (isActive) {
+                        currentBg = activeColor;
+                    } else if (isHovered) {
+                        currentBg = hoverColor;
+                    }
+                    
+                    // Draw button
+                    this.drawRoundedRect(
+                        pos.x, pos.y,
+                        pos.width, pos.height,
+                        12, currentBg
+                    );
+                    
+                    // Button shadow for hover
+                    if (isHovered && !isActive) {
+                        ctx.shadowColor = this.colors.shadow;
+                        ctx.shadowBlur = 10;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 4;
+                    } else {
+                        ctx.shadowColor = 'transparent';
+                        ctx.shadowBlur = 0;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 0;
+                    }
+                    
+                    // Draw button again with shadow
+                    this.drawRoundedRect(
+                        pos.x, pos.y,
+                        pos.width, pos.height,
+                        12, currentBg
+                    );
+                    
+                    // Reset shadow
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.shadowOffsetX = 0;
+                    ctx.shadowOffsetY = 0;
+                    
+                    // Draw button text
+                    ctx.fillStyle = textColor;
+                    ctx.font = btn.type === 'equals' || btn.type === 'operator' ? 
+                        `bold 24px 'Inter', sans-serif` : 
+                        `bold 20px 'Inter', sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    
+                    // For equals button, make it stand out
+                    if (btn.type === 'equals') {
+                        // Add gradient for equals button
+                        const equalsGradient = ctx.createLinearGradient(
+                            pos.x, pos.y, pos.x + pos.width, pos.y + pos.height
+                        );
+                        equalsGradient.addColorStop(0, this.colors.accent);
+                        equalsGradient.addColorStop(1, this.colors.accentSecondary);
+                        ctx.fillStyle = equalsGradient;
+                        
+                        // Redraw button with gradient
+                        this.drawRoundedRect(
+                            pos.x, pos.y,
+                            pos.width, pos.height,
+                            12, equalsGradient
+                        );
+                        
+                        ctx.fillStyle = this.colors.bgPrimary;
+                        ctx.font = `bold 28px 'Inter', sans-serif`;
+                    }
+                    
+                    // Add glow effect for operator buttons on hover
+                    if (btn.type === 'operator' && isHovered) {
+                        ctx.fillStyle = `rgba(0, 212, 255, 0.2)`;
+                        this.drawRoundedRect(
+                            pos.x + 2, pos.y + 2,
+                            pos.width - 4, pos.height - 4,
+                            8, ctx.fillStyle
+                        );
+                        ctx.fillStyle = textColor;
+                    }
+                    
+                    ctx.fillText(
+                        btn.text,
+                        pos.x + pos.width / 2,
+                        pos.y + pos.height / 2
+                    );
+                }
+            }
+            
+            drawRoundedRect(x, y, width, height, radius, fillStyle) {
+                const ctx = this.ctx;
+                ctx.fillStyle = fillStyle;
+                ctx.beginPath();
+                ctx.moveTo(x + radius, y);
+                ctx.lineTo(x + width - radius, y);
+                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                ctx.lineTo(x + width, y + height - radius);
+                ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                ctx.lineTo(x + radius, y + height);
+                ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                ctx.lineTo(x, y + radius);
+                ctx.quadraticCurveTo(x, y, x + radius, y);
+                ctx.closePath();
+                ctx.fill();
+            }
+            
+            drawRoundedRectStroke(x, y, width, height, radius) {
+                const ctx = this.ctx;
+                ctx.beginPath();
+                ctx.moveTo(x + radius, y);
+                ctx.lineTo(x + width - radius, y);
+                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                ctx.lineTo(x + width, y + height - radius);
+                ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                ctx.lineTo(x + radius, y + height);
+                ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                ctx.lineTo(x, y + radius);
+                ctx.quadraticCurveTo(x, y, x + radius, y);
+                ctx.closePath();
+                ctx.stroke();
+            }
+        }
+        
+        // Initialize when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            new CanvasCalculator('calculatorCanvas');
+        });
+    </script>
+</body>
+</html>
